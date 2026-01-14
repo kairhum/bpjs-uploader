@@ -8,9 +8,12 @@ from datetime import datetime
 app = Flask(__name__)
 
 # Google Drive Auth
-SCOPES = ['https://www.googleapis.com/auth/drive']
-creds = Credentials.from_service_account_file(
-    'bpjs-drive-bot.json',
+import os, json
+from google.oauth2.service_account import Credentials
+
+creds_dict = json.loads(os.environ["GOOGLE_CREDS_JSON"])
+creds = Credentials.from_service_account_info(
+    creds_dict,
     scopes=SCOPES
 )
 import httplib2
