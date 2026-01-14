@@ -8,14 +8,20 @@ from datetime import datetime
 app = Flask(__name__)
 
 # Google Drive Auth
-import os, json
-from google.oauth2.service_account import Credentials
+import base64, json, os
+from google.oauth2 import service_account
 
-creds_dict = json.loads(os.environ["GOOGLE_CREDS_JSON"])
-creds = Credentials.from_service_account_info(
-    creds_dict,
-    scopes=SCOPES
+b64 = os.environ.get("GOOGLE_CREDS_B64")
+if not b64:
+    raise Exception("GOOGLE_CREDS_B64 not found")
+
+creds_json = base64.b64decode(b64).decode("utf-8")
+
+creds = service_account.Credentials.from_service_account_info(
+    json.loads(creds_json),
+    scopes=["https://www.googleapis.com/auth/drive"]
 )
+
 import httplib2
 from googleapiclient.discovery import build
 
