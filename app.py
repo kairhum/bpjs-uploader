@@ -1,7 +1,7 @@
 import os
 import json
 import mimetypes
-from flask import Flask, render_template, request, redirect, session, url_for
+from flask import Flask, render_template, request, redirect, session
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google_auth_oauthlib.flow import Flow
@@ -9,44 +9,49 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 
 app = Flask(__name__)
-app.secret_key = "bpjs-secret-key"
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "bpjs-secret")
 
-# ============================
+# =========================
 # CONFIG
-# ============================
+# =========================
 SCOPES = ["https://www.googleapis.com/auth/drive"]
-CLIENT_SECRETS_FILE = "oauth_client.json"
-TOKEN_FILE = "token.json"
-
 ROOT_FOLDER_ID = "10hYwK4NEW4Wp3AtGPEx9A6wNmRo18BZz"
 REDIRECT_URI = "https://bpjs-tk-upload-rs-semen-gresik.onrender.com/oauth2callback"
 
-# ============================
-# OAUTH HELPERS
-# ============================
+# OAuth JSON dari ENV
+OAUTH_JSON = json.loads(os.environ["OAUTH_CLIENT_JSON"])
+
+# =========================
+# OAUTH
+# =========================
 def get_flow():
-    return Flow.from_client_secrets_file(
-        CLIENT_SECRETS_FILE,
+    return Flow.from_client_config(
+        OAUTH_JSON,
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
 
-def get_drive():
-    if not os.path.exists(TOKEN_FILE):
+def get_creds():
+    if "token" not in session:
         return None
 
-    creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+    creds = Credentials.from_authorized_user_info(session["token"], SCOPES)
 
     if creds.expired and creds.refresh_token:
         creds.refresh(Request())
-        with open(TOKEN_FILE, "w") as f:
-            f.write(creds.to_json())
+        session["token"] = json.loads(creds.to_json())
 
+    return creds
+
+def get_drive():
+    creds = get_creds()
+    if not creds:
+        return None
     return build("drive", "v3", credentials=creds)
 
-# ============================
+# =========================
 # AUTH ROUTES
-# ============================
+# =========================
 @app.route("/login")
 def login():
     flow = get_flow()
@@ -63,26 +68,15 @@ def oauth2callback():
     flow = get_flow()
     flow.fetch_token(authorization_response=request.url)
 
-    creds = flow.credentials
-    with open(TOKEN_FILE, "w") as f:
-        f.write(creds.to_json())
+    session["token"] = json.loads(flow.credentials.to_json())
+    return redirect("/")
 
-    return redirect("/")   # <- ini yang bikin anti error refresh
-
-# ============================
+# =========================
 # DRIVE HELPERS
-# ============================
+# =========================
 def get_or_create_folder(drive, folder_name):
-    q = (
-        f"name='{folder_name}' and "
-        f"'{ROOT_FOLDER_ID}' in parents and "
-        f"mimeType='application/vnd.google-apps.folder'"
-    )
-
-    result = drive.files().list(
-        q=q,
-        fields="files(id,name)"
-    ).execute()
+    q = f"name='{folder_name}' and '{ROOT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder'"
+    result = drive.files().list(q=q, fields="files(id,name)").execute()
 
     if result["files"]:
         return result["files"][0]["id"]
@@ -110,9 +104,9 @@ def upload_file(drive, local_path, filename, folder_id):
         }
     ).execute()
 
-# ============================
-# MAIN ROUTE
-# ============================
+# =========================
+# MAIN
+# =========================
 @app.route("/", methods=["GET", "POST"])
 def index():
     drive = get_drive()
@@ -152,9 +146,9 @@ def index():
 
     return render_template("index.html")
 
-# ============================
-# LOCAL RUN
-# ============================
+# =========================
+# LOCAL
+# =========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
