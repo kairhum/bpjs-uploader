@@ -28,7 +28,7 @@ drive = build("drive", "v3", http=authed_http)
 # Google Drive helpers
 # =======================
 
-ROOT_FOLDER_ID = 10hYwK4NEW4Wp3AtGPEx9A6wNmRo18BZz	
+ROOT_FOLDER_ID = "10hYwK4NEW4Wp3AtGPEx9A6wNmRo18BZz"	
 
 def get_root_folder():
         return ROOT_FOLDER_ID
