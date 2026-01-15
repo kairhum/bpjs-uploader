@@ -1,18 +1,20 @@
+import os
+import base64
+import json
+import mimetypes
 from flask import Flask, render_template, request
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from google_auth_httplib2 import AuthorizedHttp
-import os, base64, json, httplib2, mimetypes
 
 app = Flask(__name__)
 
-# =======================
-# Load Google Credentials from ENV (Base64)
-# =======================
+# ============================
+# GOOGLE CREDS FROM ENV
+# ============================
 b64 = os.environ.get("GOOGLE_CREDS_B64")
 if not b64:
-    raise Exception("GOOGLE_CREDS_B64 not found in environment")
+    raise Exception("GOOGLE_CREDS_B64 not set")
 
 creds_json = base64.b64decode(b64).decode("utf-8")
 
@@ -21,21 +23,25 @@ creds = service_account.Credentials.from_service_account_info(
     scopes=["https://www.googleapis.com/auth/drive"]
 )
 
-authed_http = AuthorizedHttp(creds, http=httplib2.Http(timeout=60))
-drive = build("drive", "v3", http=authed_http)
+drive = build("drive", "v3", credentials=creds)
 
-# =======================
-# Google Drive helpers
-# =======================
-
-ROOT_FOLDER_ID = "10hYwK4NEW4Wp3AtGPEx9A6wNmRo18BZz"	
+# ============================
+# ROOT FOLDER (Shared Drive)
+# ============================
+ROOT_FOLDER_ID = "10hYwK4NEW4Wp3AtGPEx9A6wNmRo18BZz"
 
 def get_root_folder():
-        return ROOT_FOLDER_ID
+    return ROOT_FOLDER_ID
 
 
 def get_or_create_folder(folder_name):
-    q = f"name='{folder_name}' and '{ROOT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder'"
+    root = get_root_folder()
+
+    q = (
+        f"name='{folder_name}' and "
+        f"'{root}' in parents and "
+        f"mimeType='application/vnd.google-apps.folder'"
+    )
 
     result = drive.files().list(
         q=q,
@@ -44,40 +50,40 @@ def get_or_create_folder(folder_name):
         includeItemsFromAllDrives=True
     ).execute()
 
-    if result['files']:
-        return result['files'][0]['id']
-    else:
-        folder = drive.files().create(
-            body={
-                'name': folder_name,
-                'mimeType': 'application/vnd.google-apps.folder',
-                'parents': [ROOT_FOLDER_ID]
-            },
-            supportsAllDrives=True,
-            fields='id'
-        ).execute()
-        return folder['id']
+    if result["files"]:
+        return result["files"][0]["id"]
+
+    folder = drive.files().create(
+        body={
+            "name": folder_name,
+            "mimeType": "application/vnd.google-apps.folder",
+            "parents": [root]
+        },
+        supportsAllDrives=True,
+        fields="id"
+    ).execute()
+
+    return folder["id"]
 
 
 def upload_file(local_path, filename, folder_id):
     mime = mimetypes.guess_type(local_path)[0] or "application/octet-stream"
 
     media = MediaFileUpload(local_path, mimetype=mime, resumable=True)
-   drive.files().create(
-    media_body=media,
-    body={
-        'name': filename,
-        'parents': [folder_id]
-    },
-    supportsAllDrives=True
-).execute()
+
+    drive.files().create(
+        media_body=media,
+        body={
+            "name": filename,
+            "parents": [folder_id]
+        },
+        supportsAllDrives=True
+    ).execute()
 
 
-
-# =======================
-# Flask route
-# =======================
-
+# ============================
+# ROUTES
+# ============================
 @app.route("/", methods=["GET", "POST"])
 def upload():
     if request.method == "POST":
@@ -108,10 +114,14 @@ def upload():
                 upload_file(path, filename, folder_id)
                 os.remove(path)
 
-        return "Upload sukses 🎉"
+        return "Upload sukses"
 
     return render_template("index.html")
 
 
-# ⚠️ Jangan pakai app.run() di Render
-# Gunicorn yang jalanin app ini
+# ============================
+# LOCAL RUN (Render ignores this)
+# ============================
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
