@@ -1,7 +1,7 @@
 import os
 import json
 import mimetypes
-from flask import Flask, render_template, request, redirect, session
+from flask import Flask, render_template, request, redirect, session, url_for
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google_auth_oauthlib.flow import Flow
@@ -9,45 +9,50 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 
 app = Flask(__name__)
-app.secret_key = "bpjs-secret-key"   # bebas, asal konsisten
+app.secret_key = "bpjs-secret-key"
 
 # ============================
 # CONFIG
 # ============================
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 CLIENT_SECRETS_FILE = "oauth_client.json"
+TOKEN_FILE = "token.json"
 
 ROOT_FOLDER_ID = "10hYwK4NEW4Wp3AtGPEx9A6wNmRo18BZz"
+REDIRECT_URI = "https://bpjs-tk-upload-rs-semen-gresik.onrender.com/oauth2callback"
 
 # ============================
-# OAUTH
+# OAUTH HELPERS
 # ============================
 def get_flow():
     return Flow.from_client_secrets_file(
         CLIENT_SECRETS_FILE,
         scopes=SCOPES,
-        redirect_uri="https://bpjs-tk-upload-rs-semen-gresik.onrender.com/oauth2callback"
+        redirect_uri=REDIRECT_URI
     )
 
 def get_drive():
-    if not os.path.exists("token.json"):
-        raise Exception("User belum login ke Google")
+    if not os.path.exists(TOKEN_FILE):
+        return None
 
-    creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+    creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
 
     if creds.expired and creds.refresh_token:
         creds.refresh(Request())
+        with open(TOKEN_FILE, "w") as f:
+            f.write(creds.to_json())
 
     return build("drive", "v3", credentials=creds)
 
 # ============================
-# LOGIN ROUTES
+# AUTH ROUTES
 # ============================
 @app.route("/login")
 def login():
     flow = get_flow()
     auth_url, state = flow.authorization_url(
         access_type="offline",
+        prompt="consent",
         include_granted_scopes="true"
     )
     session["state"] = state
@@ -59,17 +64,25 @@ def oauth2callback():
     flow.fetch_token(authorization_response=request.url)
 
     creds = flow.credentials
-    with open("token.json", "w") as f:
+    with open(TOKEN_FILE, "w") as f:
         f.write(creds.to_json())
 
-    return "Login sukses. Sekarang bisa upload."
+    return redirect("/")   # <- ini yang bikin anti error refresh
 
 # ============================
 # DRIVE HELPERS
 # ============================
 def get_or_create_folder(drive, folder_name):
-    q = f"name='{folder_name}' and '{ROOT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder'"
-    result = drive.files().list(q=q, fields="files(id,name)").execute()
+    q = (
+        f"name='{folder_name}' and "
+        f"'{ROOT_FOLDER_ID}' in parents and "
+        f"mimeType='application/vnd.google-apps.folder'"
+    )
+
+    result = drive.files().list(
+        q=q,
+        fields="files(id,name)"
+    ).execute()
 
     if result["files"]:
         return result["files"][0]["id"]
@@ -101,10 +114,9 @@ def upload_file(drive, local_path, filename, folder_id):
 # MAIN ROUTE
 # ============================
 @app.route("/", methods=["GET", "POST"])
-def upload():
-    try:
-        drive = get_drive()
-    except:
+def index():
+    drive = get_drive()
+    if not drive:
         return redirect("/login")
 
     if request.method == "POST":
@@ -117,7 +129,7 @@ def upload():
         mapping = {
             "kk1": "KK 1",
             "ktp": "KTP Peserta",
-	    "kpj": "Kartu Perserta Jamsostek",
+            "kpj": "Kartu Peserta Jamsostek",
             "absensi": "Absensi",
             "kronologi": "Kronologi",
             "saksi": "KTP 2 Saksi"
