@@ -117,6 +117,7 @@ def upload():
         mapping = {
             "kk1": "KK 1",
             "ktp": "KTP Peserta",
+	    "kpj": "Kartu Perserta Jamsostek",
             "absensi": "Absensi",
             "kronologi": "Kronologi",
             "saksi": "KTP 2 Saksi"
